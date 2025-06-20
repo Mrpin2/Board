@@ -120,8 +120,8 @@ if uploaded_file is not None:
         # Display a spinner while generating
         with st.spinner("Please wait, Gemini is generating the synopsis... This might take a moment for larger PDFs."):
             try:
-                # Initialize the generative model
-                model = genai.GenerativeModel('gemini-pro') # Using 'gemini-pro' for text generation
+                # Changed model from 'gemini-pro' to 'gemini-1.5-flash' for broader availability
+                model = genai.GenerativeModel('gemini-1.5-flash')
 
                 # Generate content
                 response = model.generate_content(prompt)
