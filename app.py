@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import PyPDF2
 import io
+from docx import Document # Import the Document class from python-docx
 
 # --- Streamlit Secrets Configuration ---
 # To use this application, you need to create a file named `.streamlit/secrets.toml`
@@ -131,6 +132,26 @@ if uploaded_file is not None:
                     synopsis = response.candidates[0].content.parts[0].text
                     st.subheader("🎉 Meeting Synopsis:")
                     st.markdown(synopsis)
+
+                    # --- Download as Word document ---
+                    st.subheader("Download Options")
+                    # Create a new Word document
+                    doc = Document()
+                    doc.add_heading('Meeting Synopsis', level=1)
+                    doc.add_paragraph(synopsis)
+
+                    # Save the document to a BytesIO object
+                    doc_buffer = io.BytesIO()
+                    doc.save(doc_buffer)
+                    doc_buffer.seek(0) # Rewind the buffer to the beginning
+
+                    st.download_button(
+                        label="Download Synopsis as Word (docx)",
+                        data=doc_buffer,
+                        file_name="meeting_synopsis.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+
                 else:
                     st.error("Could not generate a synopsis. No candidates found in the Gemini response.")
                     if response.prompt_feedback and response.prompt_feedback.block_reason:
