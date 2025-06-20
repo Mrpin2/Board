@@ -97,48 +97,72 @@ if uploaded_file is not None:
         # --- Generate Synopsis using Gemini ---
         st.subheader("Generating Meeting Synopsis...")
 
-        # Prepare the prompt for Gemini
-        # It's crucial to provide clear instructions to the LLM.
+        # Prepare the prompt for Gemini with instructions for detailed and formatted output
         prompt = f"""
         You are an AI assistant specialized in summarizing meeting notes.
         Please read the following text extracted from a PDF document, which contains meeting information.
-        Your task is to provide a concise synopsis of the meeting.
-        Focus on:
-        - Main topics discussed.
-        - Key decisions made.
-        - Any specific action items or next steps.
-        - Important attendees or departments mentioned (if relevant and present).
+        Your task is to provide a detailed and properly formatted synopsis of the meeting.
 
-        Here is the text from the PDF:
+        Please structure your response with the following sections using Markdown headings and bullet points:
+
+        # Meeting Synopsis
+
+        ## Summary
+        Provide a concise overview of the entire meeting.
+
+        ## Main Topics Discussed
+        List the key subjects or agendas that were covered during the meeting using bullet points.
+
+        ## Key Decisions Made
+        Outline any important decisions, agreements, or conclusions reached, using bullet points.
+
+        ## Action Items and Next Steps
+        Detail specific tasks assigned, who is responsible (if mentioned), and deadlines (if any), using bullet points.
+
+        ## Attendees (if identifiable)
+        List any notable attendees or departments mentioned in the document.
 
         ---
+        Here is the text from the PDF:
+
         {text}
         ---
 
-        Meeting Synopsis:
         """
 
         # Display a spinner while generating
-        with st.spinner("Please wait, Gemini is generating the synopsis... This might take a moment for larger PDFs."):
+        with st.spinner("Please wait, Gemini is generating the detailed synopsis... This might take a moment for larger PDFs."):
             try:
-                # Changed model from 'gemini-pro' to 'gemini-1.5-flash' for broader availability
                 model = genai.GenerativeModel('gemini-1.5-flash')
 
                 # Generate content
                 response = model.generate_content(prompt)
 
                 if response.candidates:
-                    # Access the text from the first candidate
                     synopsis = response.candidates[0].content.parts[0].text
                     st.subheader("🎉 Meeting Synopsis:")
-                    st.markdown(synopsis)
+                    st.markdown(synopsis) # Streamlit renders Markdown nicely
 
                     # --- Download as Word document ---
                     st.subheader("Download Options")
                     # Create a new Word document
                     doc = Document()
-                    doc.add_heading('Meeting Synopsis', level=1)
-                    doc.add_paragraph(synopsis)
+                    doc.add_heading('Meeting Synopsis', level=0) # Main title for the document
+
+                    # Add the generated synopsis directly. Since we prompted Gemini
+                    # for Markdown, it will appear as plain text in docx, but with
+                    # the structured headings and bullet points that Gemini generates.
+                    for line in synopsis.split('\n'):
+                        if line.startswith('# '):
+                            if line.startswith('## '):
+                                doc.add_heading(line[3:].strip(), level=2)
+                            elif line.startswith('# '):
+                                doc.add_heading(line[2:].strip(), level=1)
+                        elif line.startswith('- '):
+                            doc.add_paragraph(line[2:].strip(), style='List Bullet')
+                        else:
+                            doc.add_paragraph(line.strip())
+
 
                     # Save the document to a BytesIO object
                     doc_buffer = io.BytesIO()
@@ -146,9 +170,9 @@ if uploaded_file is not None:
                     doc_buffer.seek(0) # Rewind the buffer to the beginning
 
                     st.download_button(
-                        label="Download Synopsis as Word (docx)",
+                        label="Download Detailed Synopsis as Word (docx)",
                         data=doc_buffer,
-                        file_name="meeting_synopsis.docx",
+                        file_name="detailed_meeting_synopsis.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
 
