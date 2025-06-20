@@ -5,19 +5,25 @@ import io
 
 # --- Streamlit Secrets Configuration ---
 # To use this application, you need to create a file named `.streamlit/secrets.toml`
-# in the same directory as your `app.py` file.
-# Add your API keys to this file like this:
+# in the same directory as your `app.py` file for local development.
+# For Streamlit Cloud, you configure these secrets directly in the app dashboard.
+#
+# Add your API keys and the password to this file like this:
 #
 # # .streamlit/secrets.toml
 # GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
+# STREAMLIT_PASSWORD = "Rajeev" # <-- Add this line for your password
 # # OPENAI_API_KEY = "YOUR_OPENAI_API_KEY" # Uncomment and add if you plan to use OpenAI API later
 
 # --- Password Protection ---
-# The password for accessing the application is "Rajeev".
-# This is a simple client-side password check. For production, consider
-# more robust authentication methods.
+# Retrieve the correct password from Streamlit secrets
+correct_password = st.secrets.get("STREAMLIT_PASSWORD")
+
+if not correct_password:
+    st.error("Password not found in Streamlit secrets. Please set `STREAMLIT_PASSWORD`.")
+    st.stop() # Stop the execution of the app if password is not set
+
 password = st.sidebar.text_input("Enter Password to Access", type="password")
-correct_password = "Rajeev"
 
 if password != correct_password:
     st.sidebar.error("Incorrect password. Please try again.")
