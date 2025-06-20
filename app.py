@@ -5,6 +5,7 @@ import io
 from docx import Document
 from PIL import Image # For image processing (required for OCR)
 import pytesseract # For Optical Character Recognition (OCR)
+from pdf2image import convert_from_bytes # For converting PDF pages to images
 
 # --- Streamlit Secrets Configuration ---
 # To use this application, you need to create a file named `.streamlit/secrets.toml`
@@ -47,75 +48,72 @@ except Exception as e:
     st.error(f"Error configuring Gemini API: {e}")
     st.stop()
 
-# --- OCR Engine Path (Crucial for pytesseract) ---
-# For local development:
-# You might need to set the path to your Tesseract executable.
-# Example for Windows: pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-# Example for Linux/macOS: pytesseract.pytesseract.tesseract_cmd = '/usr/local/bin/tesseract' (or similar)
-
-# For Streamlit Cloud:
-# Tesseract needs to be installed via apt-get in a packages.txt file.
-# Streamlit Cloud's environment usually has Tesseract installed in a default path,
-# so explicitly setting pytesseract.pytesseract.tesseract_cmd might not be necessary.
-# However, if it fails, you might need to find the correct path on Streamlit Cloud's system.
-# We'll assume the default path works after installing via packages.txt.
+# --- OCR Engine Path (Crucial for pytesseract - usually not needed on Streamlit Cloud if tesseract-ocr is in packages.txt) ---
+# pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract' # Common path for Linux, might be needed if auto-detection fails
 
 # --- PDF Processing Function ---
 @st.cache_data # Cache the extraction to avoid re-processing on rerun
 def extract_text_from_pdf(uploaded_file_buffer):
     """
-    Extracts text from a PDF, attempting OCR if direct text extraction fails.
+    Extracts text from a PDF, attempting OCR if direct text extraction fails or pages are images.
     """
     text = ""
-    pdf_file = io.BytesIO(uploaded_file_buffer.getvalue())
-    pdf_reader = PyPDF2.PdfReader(pdf_file)
+    pdf_file_bytes = uploaded_file_buffer.getvalue()
+    pdf_file = io.BytesIO(pdf_file_bytes)
 
-    num_pages = len(pdf_reader.pages)
-    st.info(f"Attempting to extract text from {num_pages} pages...")
+    # First, try PyPDF2 for text-based PDFs (faster and more accurate if text is present)
+    st.info("Attempting direct text extraction with PyPDF2...")
+    try:
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        for page_num in range(len(pdf_reader.pages)):
+            page = pdf_reader.pages[page_num]
+            try:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+            except Exception as e:
+                st.warning(f"Could not extract direct text from page {page_num + 1}: {e}")
+        
+        if text.strip(): # If any text was extracted directly, use it
+            st.success("Direct text extraction successful for some or all pages.")
+            return text
 
-    # Try direct text extraction first
-    extracted_any_text = False
-    for page_num in range(num_pages):
-        page = pdf_reader.pages[page_num]
-        try:
-            page_text = page.extract_text()
-            if page_text and page_text.strip():
-                text += page_text + "\n"
-                extracted_any_text = True
-            else:
-                # If direct extraction fails for a page, mark it for potential OCR
-                st.warning(f"No direct text extracted from page {page_num + 1}. Will try OCR for this page if no text is found in the entire document.")
-        except Exception as e:
-            st.warning(f"Error during direct text extraction from page {page_num + 1}: {e}")
+    except Exception as e:
+        st.error(f"Error reading PDF with PyPDF2: {e}")
+        st.info("Falling back to OCR for all pages.")
 
-    # If no text was extracted at all, try OCR for all pages
-    if not extracted_any_text:
-        st.warning("No text extracted directly from the PDF. Attempting OCR (Optical Character Recognition)...")
-        try:
-            # You'd typically need a PDF-to-image conversion library here (like pdf2image)
-            # but pdf2image has system dependencies (poppler) that are harder to manage
-            # in Streamlit Cloud's `packages.txt`.
-            # For simplicity and to avoid complex system dependencies, direct OCR on PDF
-            # pages isn't straightforward without external tools.
-            # A common workaround involves `pdf2image` and `poppler`.
-            # Since this is challenging for a quick deploy, I'll add a placeholder message.
-            # If the user needs robust OCR, they might need a different approach or
-            # a custom Docker image on Streamlit Cloud.
-            
-            # Placeholder for OCR functionality:
-            # For `pytesseract` to work on a PDF directly without `pdf2image`
-            # or `poppler`, you usually need to save individual pages as images first.
-            # PyPDF2 doesn't directly convert pages to images.
-            # This is a significant limitation for pure Streamlit Cloud deployment without `pdf2image`.
+    # If PyPDF2 extraction yielded no text or failed, proceed with OCR
+    st.warning("No text extracted directly or an error occurred. Attempting OCR using pdf2image and pytesseract...")
+    full_ocr_text = ""
+    try:
+        # Convert PDF pages to PIL Image objects
+        # We need to specify the Poppler path if not in system PATH.
+        # For Streamlit Cloud, after 'poppler-utils' is installed, it should be in PATH.
+        images = convert_from_bytes(pdf_file_bytes)
 
-            st.error("Direct OCR on PDF pages within Streamlit Cloud requires additional system dependencies (like Poppler, used by `pdf2image`), which are complex to configure directly via `packages.txt`. While `pytesseract` is installed, converting PDF pages to images for OCR isn't straightforward in this setup.")
-            st.info("For reliable OCR on scanned PDFs, consider local execution with `pdf2image` and Poppler installed, or explore cloud-based OCR APIs (e.g., Google Cloud Vision AI) for a more robust solution.")
-            return "" # Return empty text as we can't perform OCR without more setup
-
-        except Exception as e:
-            st.error(f"An error occurred during OCR attempt: {e}. Please ensure Tesseract OCR engine is properly installed on the system.")
+        if not images:
+            st.error("pdf2image could not convert any pages to images. PDF might be corrupted or malformed.")
             return ""
-    return text
+
+        for i, image in enumerate(images):
+            with st.spinner(f"Performing OCR on page {i+1}/{len(images)}..."):
+                try:
+                    page_ocr_text = pytesseract.image_to_string(image)
+                    if page_ocr_text:
+                        full_ocr_text += page_ocr_text + "\n"
+                except Exception as e:
+                    st.warning(f"Error during OCR on page {i+1}: {e}")
+        
+        if not full_ocr_text.strip():
+            st.error("OCR did not yield any text. The document might be very low quality or entirely image-based without readable text.")
+            return ""
+        
+        return full_ocr_text
+
+    except Exception as e:
+        st.error(f"An error occurred during PDF-to-image conversion or OCR: {e}")
+        st.info("Please ensure `tesseract-ocr` and `poppler-utils` are correctly installed via `packages.txt` on Streamlit Cloud, and `pdf2image` and `pytesseract` are in `requirements.txt`.")
+        return ""
 
 # --- PDF Upload Section ---
 uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
@@ -126,7 +124,7 @@ if uploaded_file is not None:
     extracted_text = extract_text_from_pdf(uploaded_file)
 
     if not extracted_text:
-        st.warning("Could not extract any meaningful text from the PDF, even with OCR considerations. It might be entirely image-based or corrupted, and direct OCR might not be fully implemented without additional system dependencies (see info message).")
+        st.warning("Could not extract any meaningful text from the PDF, even with OCR attempts. Please check the PDF content.")
         st.stop()
 
     st.text_area("Extracted Text (first 1000 characters):", extracted_text[:1000], height=200, help="This shows a preview of the text extracted from your PDF.")
