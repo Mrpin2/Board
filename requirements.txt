@@ -2,3 +2,5 @@ streamlit
 google-generativeai
 pypdf2
 python-docx
+Pillow
+pytesseract
